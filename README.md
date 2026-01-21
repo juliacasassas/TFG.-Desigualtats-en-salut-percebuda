@@ -2,7 +2,7 @@
 
 Aquest repositori conté el codi utilitzat per al Treball Final de Grau titulat:
 
-**“Desigualtats en la salut percebuda a Espanya”**
+**“Desigualtats socials en salut percebuda a Espanya: una anàlisi empírica a partir de l'Enquesta de Salut d'Espanya”**
 
 L’anàlisi es basa en dades de l’Enquesta de Salut d’Espanya (ESdE) 2023 i inclou:
 - Preparació i tractament de la base de dades
