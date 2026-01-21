@@ -1,0 +1,209 @@
+---
+title: "TFG. Base de dades"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+date: "2025-11-22"
+---
+
+
+#Lectura de la base de dades
+
+```{r}
+load("/Users/mac/Downloads/ESdEadulto_2023 (1)/R/ESdEadulto_2023.RData")
+base_model <- df_micro
+```
+
+
+```{r}
+dim(base_model)
+View(base_model)
+```
+
+
+#Elecció de les variables del model
+
+```{r}
+vars <- c("IDENTHOGAR", "PROXY_0", "SEXOa", "EDADa",
+        "C1","J15_1","J15_2","J15_3","J15_4","J15_5","J15_6","J15_7","P1_1","P1_2","P1_3","P1_4","P1_5","P1_6", "P1_7", "P1_8", "P1_9", "P1_11", "P1_12","P1_13", "NIVEST","CLASE_PR","INDICE_BIENESTAR","O2","Q1","R1", "FACTORADULTO")
+
+# Codis de missing típics del INE
+missing_codes <- c(-2, -1, 9, 99, 999, 9999)
+
+# Convertir a NA en totes les variables seleccionades 
+base_model[vars] <- lapply(base_model[vars], function(x) {
+  x[x %in% missing_codes] <- NA
+  return(x)
+})
+
+base<- base_model[ , vars]
+```
+
+
+#Renombrament de les variables seleccionades
+
+```{r}
+library(dplyr)
+
+base <- base %>%
+  rename(
+    Identificació_llar = IDENTHOGAR,
+    Informant = PROXY_0,
+    Sexe = SEXOa,
+    Edat = EDADa,
+    Salut_percebuda = C1,
+    Seguretat_social = J15_1,
+    Mutualitats_Estat_públic = J15_2,
+    Mutualitats_Estat_privat = J15_3,
+    Assegurança_privada = J15_4,
+    Assegurança_empresa = J15_5,
+    Cap_assegurança = J15_6,
+    Altres_situacions = J15_7,
+    Nivell_estudis = NIVEST,
+    Classe_social = CLASE_PR,
+    Índex_benestar = INDICE_BIENESTAR,
+    Activitat_física = O2,
+    Fumador = Q1,
+    Alcohol = R1,
+    Fruita = P1_1,
+    Carn = P1_2,
+    Ous = P1_3,
+    Peix = P1_4,
+    Pasta_arròs_patata=P1_5,
+    Pa_cereals = P1_6,
+    Verdura_amanida = P1_7,
+    Llegums = P1_8,
+    Embotits = P1_9,
+    Dolços = P1_11,
+    Sucre = P1_12,
+    Menjar_ràpid = P1_13,
+    Factor_adult = FACTORADULTO
+    )
+```
+
+#Ordenació de les variables
+
+```{r}
+base <- base %>%
+  dplyr::select(Identificació_llar, Salut_percebuda, Informant, Sexe, Edat, Nivell_estudis, Classe_social, Seguretat_social, Mutualitats_Estat_públic, Mutualitats_Estat_privat, Assegurança_privada, Assegurança_empresa, Cap_assegurança, Altres_situacions, Activitat_física, Fruita, Carn, Ous, Peix, Pasta_arròs_patata, Pa_cereals, Verdura_amanida, Llegums, Embotits, Dolços, Sucre, Menjar_ràpid, Fumador, Alcohol, Índex_benestar, Factor_adult)
+```
+
+```{r}
+#Mirem si les variables estan correctament tificades 
+str(base)
+summary(base)
+```
+
+```{r}
+format <- sapply(base, class)
+format
+```
+
+#Pasar a factor les variables categòriques
+
+```{r}
+library(dplyr)
+
+base <- base %>%
+  mutate(
+    #Identificació llar
+    Identificació_llar = as.factor(Identificació_llar),
+    
+    #Informant
+    Informant = as.factor(Informant),
+    
+    #Sexe
+    Sexe = as.factor(Sexe),
+    
+    #Nivell_d'estudis
+    Nivell_estudis = as.factor(Nivell_estudis),
+    
+    #Classe_social
+    Classe_social = as.factor(Classe_social),
+    
+    #Seguretat_social
+    Seguretat_social = as.factor(Seguretat_social),
+    
+    #Mutualitats_Estat_públic
+    Mutualitats_Estat_públic = as.factor(Mutualitats_Estat_públic),
+    
+    #Mutualitats_Estat_privat
+    Mutualitats_Estat_privat = as.factor(Mutualitats_Estat_privat),
+    
+    #Assegurança_privada
+    Assegurança_privada = as.factor(Assegurança_privada),
+    
+    #Assegurança_empresa
+    Assegurança_empresa = as.factor(Assegurança_empresa),
+    
+    #Cap_assegurança
+    Cap_assegurança = as.factor(Cap_assegurança),
+    
+    #Altres_situacions
+    Altres_situacions = as.factor(Altres_situacions),
+    
+    #Activitat_física
+    Activitat_física = as.factor(Activitat_física),
+    
+    #Fruita
+    Fruita = as.factor(Fruita),
+    
+    #Carn
+    Carn = as.factor(Carn),
+    
+    #Ous
+    Ous = as.factor(Ous),
+    
+    #Peix
+    Peix = as.factor(Peix),
+    
+    #Pasta_arros_patata
+    Pasta_arròs_patata = as.factor(Pasta_arròs_patata),
+    
+    #Pa_cereals
+    Pa_cereals = as.factor(Pa_cereals),
+    
+    #Verdura_amanida
+    Verdura_amanida = as.factor(Verdura_amanida),
+    
+    #Llegums
+    Llegums = as.factor(Llegums),
+    
+    #Embotits
+    Embotits = as.factor(Embotits),
+    
+    #Dolços
+    Dolços = as.factor(Dolços),
+    
+    #Sucre
+    Sucre = as.factor(Sucre),
+  
+    #Menjar_ràpid
+    Menjar_ràpid = as.factor(Menjar_ràpid),
+    
+    #Alcohol
+    Alcohol = as.factor(Alcohol),
+    
+    #Fumador
+    Fumador = as.factor(Fumador),
+    
+    #Salut_percebuda
+    Salut_percebuda = as.factor(Salut_percebuda)
+  )
+```
+
+Codifiquem bé les variables a la categoria a la que pertany. En el cas de les categòriques les passem a factor. 
+
+
+```{r}
+base <- base %>% 
+  dplyr::filter(Informant != "2")
+```
+
+
+Per tal d'evitar biaixos en els resultats i garantir unes conclusions fiables i coherents amb la informació recollida, eliminarem les observacions en què l'informant no coincideix amb la persona adulta seleccionada, atès que quan es dona aquesta casuística l'edat de l'informant és desconeguda, fet que no permet l'estudi de les associacions entre determinants socials.
+
+
+
+

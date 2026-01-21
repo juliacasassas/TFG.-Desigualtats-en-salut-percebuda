@@ -1,0 +1,249 @@
+---
+title: Apartat 4. Model Logit ordinal
+output: html_document
+date: "2025-12-31"
+---
+
+
+#Càrrega de paquets
+
+```{r}
+library(dplyr)
+library(survey)
+library(MASS)    
+```
+
+#Definició de la variable resposta ordinal
+
+```{r}
+base_model <- base_model %>%
+  mutate(
+    Salut_ord = factor(
+      Salut_percebuda,
+      levels = c(1, 2, 3, 4, 5),
+      labels = c("Molt bona", "Bona", "Regular", "Dolenta", "Molt dolenta"),
+      ordered = TRUE
+    )
+  )
+
+summary(base_model$Salut_ord)
+```
+
+#Definició del disseny mostral
+
+```{r}
+design_cc <- svydesign(
+  ids = ~1,
+  weights = ~Factor_adult,
+  data = base_model
+)
+```
+
+#Comprovació de variables categòriques (ponderades)
+
+```{r}
+svytable(~ Nivell_estudis, design_cc)
+svytable(~ Classe_social, design_cc)
+svytable(~ Tipus_cobertura, design_cc)
+svytable(~ Dieta, design_cc)
+svytable(~ Alcohol, design_cc)
+svytable(~ Activitat_física, design_cc)
+svytable(~ Fumador, design_cc)
+```
+
+#Recodificació de nivell d'estudis (3 categories)
+
+```{r}
+design_cc <- update(
+  design_cc,
+  Nivell_estudis_fix = as.character(Nivell_estudis)
+)
+
+design_cc <- update(
+  design_cc,
+  Nivell_estudis_fix = ifelse(
+    Nivell_estudis_fix %in% c("No procedeix (<10 anys)", "Primària incompleta"),
+    NA,
+    Nivell_estudis_fix
+  )
+)
+
+design_cc <- update(
+  design_cc,
+  Estudis3 = fct_collapse(
+    factor(Nivell_estudis_fix),
+    Baix = c("No sap llegir o escriure", "Primària completa"),
+    Mig  = c("Secundària 1a etapa", "Batxillerat", "FP grau mitjà"),
+    Alt  = c("FP grau superior", "Universitaris")
+  )
+)
+```
+
+
+#Recodificació del tipus de cobertura
+
+```{r}
+design_cc <- update(
+  design_cc,
+  Cobertura2 = fct_collapse(
+    factor(Tipus_cobertura),
+    Amb_assegurança   = c("Només pública", "Privada"),
+    Sense_assegurança = "Sense assegurança"
+  )
+)
+```
+
+#Neteja de nivells buits
+
+```{r}
+design_cc <- update(
+  design_cc,
+  Sexe             = droplevels(Sexe),
+  Classe_social    = droplevels(Classe_social),
+  Activitat_física = droplevels(Activitat_física),
+  Fumador          = droplevels(Fumador),
+  Alcohol          = droplevels(Alcohol),
+  Dieta            = droplevels(Dieta),
+  Estudis3         = droplevels(Estudis3),
+  Cobertura2       = droplevels(Cobertura2)
+)
+```
+
+#Model logit ordinal base
+
+```{r}
+model_logit_ordinal <- svyolr(
+  Salut_ord ~ Edat + Índex_benestar +
+    Sexe + Estudis3 + Classe_social +
+    Cobertura2 + Dieta + Alcohol +
+    Activitat_física + Fumador,
+  design = design_cc
+)
+
+summary(model_logit_ordinal)
+```
+
+#Odds ratio i intervals de confiança (95%)
+
+```{r}
+coefs <- coef(model_logit_ordinal)
+OR <- exp(coefs)
+
+IC <- confint(model_logit_ordinal)
+OR_IC <- exp(IC)
+
+resultats_ord <- cbind(OR = OR, OR_IC)
+resultats_ord
+```
+
+#Tests globals de wald per a cada terme
+
+```{r}
+regTermTest(model_logit_ordinal, ~ Edat)
+regTermTest(model_logit_ordinal, ~ Índex_benestar)
+regTermTest(model_logit_ordinal, ~ Sexe)
+regTermTest(model_logit_ordinal, ~ Estudis3)
+regTermTest(model_logit_ordinal, ~ Classe_social)
+regTermTest(model_logit_ordinal, ~ Cobertura2)
+regTermTest(model_logit_ordinal, ~ Dieta)
+regTermTest(model_logit_ordinal, ~ Alcohol)
+regTermTest(model_logit_ordinal, ~ Activitat_física)
+regTermTest(model_logit_ordinal, ~ Fumador)
+```
+
+#Interacció edat x sexe
+
+```{r}
+design_cc <- update(
+  design_cc,
+  Edat_c = Edat - mean(Edat, na.rm = TRUE)
+)
+
+model_int_edat_sexe <- svyolr(
+  Salut_ord ~ Edat_c * Sexe + Índex_benestar +
+    Estudis3 + Classe_social + Cobertura2 +
+    Dieta + Alcohol + Activitat_física + Fumador,
+  design = design_cc
+)
+
+summary(model_int_edat_sexe)
+```
+
+#Interacció edat x activitat física
+
+```{r}
+model_int_edat_act <- svyolr(
+  Salut_ord ~ Edat_c * Activitat_física + Índex_benestar +
+    Sexe + Estudis3 + Classe_social + Cobertura2 +
+    Dieta + Alcohol + Fumador,
+  design = design_cc
+)
+
+summary(model_int_edat_act)
+```
+
+#Comprovació de l'assumpció de proportional odds
+
+```{r}
+design_cc <- update(
+  design_cc,
+  Salut_ord_num = as.numeric(Salut_ord),
+  y1 = as.numeric(Salut_ord_num <= 1),
+  y2 = as.numeric(Salut_ord_num <= 2),
+  y3 = as.numeric(Salut_ord_num <= 3),
+  y4 = as.numeric(Salut_ord_num <= 4)
+)
+```
+
+```{r}
+m1 <- svyglm(y1 ~ Edat + Índex_benestar + Sexe + Estudis3 +
+               Classe_social + Cobertura2 + Dieta +
+               Alcohol + Activitat_física + Fumador,
+             design = design_cc, family = quasibinomial())
+
+m2 <- svyglm(y2 ~ Edat + Índex_benestar + Sexe + Estudis3 +
+               Classe_social + Cobertura2 + Dieta +
+               Alcohol + Activitat_física + Fumador,
+             design = design_cc, family = quasibinomial())
+
+m3 <- svyglm(y3 ~ Edat + Índex_benestar + Sexe + Estudis3 +
+               Classe_social + Cobertura2 + Dieta +
+               Alcohol + Activitat_física + Fumador,
+             design = design_cc, family = quasibinomial())
+
+m4 <- svyglm(y4 ~ Edat + Índex_benestar + Sexe + Estudis3 +
+               Classe_social + Cobertura2 + Dieta +
+               Alcohol + Activitat_física + Fumador,
+             design = design_cc, family = quasibinomial())
+
+summary(m1)
+summary(m2)
+summary(m3)
+summary(m4)
+```
+
+#Predicció de probabiltitats
+
+```{r}
+prob_mat <- predict(model_logit_ordinal, type = "probs")
+head(prob_mat)
+```
+
+```{r}
+# Classe més probable
+pred_class <- colnames(prob_mat)[max.col(prob_mat)]
+table(pred_class)
+```
+
+```{r}
+# Probabilitats mitjanes ponderades (poblacionals)
+prob_df <- as.data.frame(prob_mat)
+prob_df$w <- weights(design_cc)
+
+colMeans(prob_df[, colnames(prob_mat)] * prob_df$w) / mean(prob_df$w)
+```
+
+
+
+
+

@@ -1,0 +1,401 @@
+---
+title: Apartat 3. Modelo de regresion binaria
+output: html_document
+date: "2025-12-13"
+---
+
+#Tractament dels NA's
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+base$Nivell_estudis <- as.factor(base$Nivell_estudis)
+levels(base$Nivell_estudis) <- c(levels(base$Nivell_estudis), "No_resposta")
+base$Nivell_estudis[is.na(base$Nivell_estudis)] <- "No_resposta"
+
+base$Classe_social <- as.factor(base$Classe_social)
+levels(base$Classe_social) <- c(levels(base$Classe_social), "No_resposta")
+base$Classe_social[is.na(base$Classe_social)] <- "No_resposta"
+```
+
+```{r}
+imputa_moda <- function(x) {
+  ux <- na.omit(x)
+  moda <- names(sort(table(ux), decreasing = TRUE))[1]
+  x[is.na(x)] <- moda
+  return(x)
+}
+```
+
+```{r}
+vars_ord <- c("Menjar_ràpid", "Fruita", "Carn", "Peix", "Llegums", "Ous", "Peix",
+              "Pa_cereals", "Verdura_amanida", "Embotits",
+              "Dolços", "Sucre", "Pasta_arròs_patata",
+              "Activitat_física", "Alcohol", "Fumador")
+
+for (v in vars_ord) {
+  base[[v]] <- as.factor(base[[v]])
+  base[[v]] <- imputa_moda(base[[v]])
+}
+```
+
+
+```{r}
+base_model <- na.omit(base)
+```
+
+
+
+#Model de regressió binària
+
+```{r}
+library(dplyr)
+library(survey)
+```
+
+```{r}
+base_model <- base_model %>%
+  mutate(
+    Salut_bin = ifelse(
+      Salut_percebuda %in% c(1, 2), 1,
+      ifelse(Salut_percebuda %in% c(3, 4, 5), 0, NA)
+    )
+  )
+```
+
+```{r}
+design_cc <- svydesign(
+  ids = ~1,
+  weights = ~Factor_adult,
+  data = base_model
+)
+```
+
+
+Atesa la naturalesa binària de la variable dependent i la inclusió de diverses variables categòriques amb múltiples nivells, s’ha considerat necessari avaluar la possible presència de problemes de separació. La inspecció dels coeficients estimats i dels errors estàndard no mostra indicis de separació completa ni quasi-separació, la qual cosa garanteix l’estabilitat de les estimacions del model.
+
+```{r}
+summary(base_model)
+```
+
+
+```{r}
+library(survey)
+
+model <- svyglm(
+  Salut_bin ~ Edat + Índex_benestar +
+              Sexe + Nivell_estudis + Classe_social + Tipus_cobertura +
+              Dieta + Alcohol + Activitat_física + Fumador,
+  design = design_cc,
+  family = quasibinomial(link = "logit")
+)
+summary(model)
+```
+
+
+```{r}
+coefs <- summary(model)$coefficients
+
+OR <- exp(coef(model))
+IC <- exp(confint(model))   # intervals de confiança
+resultats <- cbind(OR, IC)
+resultats
+```
+
+ 
+
+#Comparació model de relació lineal amb l'edat i relació quadràtica
+
+```{r}
+model_lin <- svyglm(
+  Salut_bin ~ Edat + Índex_benestar +
+              Sexe + Nivell_estudis + Classe_social +
+              Tipus_cobertura +
+              Activitat_física + Fumador + Alcohol,
+  design = design_cc,
+  family = quasibinomial(link = "logit")
+)
+
+summary(model_lin)
+```
+
+```{r}
+model_quad_edat <- svyglm(
+  Salut_bin ~ Edat + I(Edat^2) + Índex_benestar +
+              Sexe + Nivell_estudis + Classe_social +
+              Tipus_cobertura +
+              Activitat_física + Fumador + Alcohol,
+  design = design_cc,
+  family = quasibinomial(link = "logit")
+)
+
+summary(model_quad_edat)
+```
+
+```{r}
+anova(model_lin, model_quad_edat)
+```
+
+```{r}
+model_quad_benestar <- svyglm(
+  Salut_bin ~ Edat +
+    Índex_benestar + I(Índex_benestar^2) +
+    Sexe + Nivell_estudis + Classe_social +
+    Tipus_cobertura + Dieta +
+    Activitat_física + Fumador + Alcohol,
+  design = design_cc,
+  family = quasibinomial(link = "logit")
+)
+
+summary(model_quad_benestar)
+```
+
+```{r}
+anova(model_lin, model_quad_benestar)
+```
+
+#Avaluació del model
+
+```{r}
+library(survey)
+
+regTermTest(model, ~ Edat + Índex_benestar + Sexe + Nivell_estudis +
+              Classe_social + Tipus_cobertura + Dieta + Alcohol +
+              Activitat_física + Fumador)
+```
+
+```{r}
+# Test de Wald global per a cada variable
+regTermTest(model, ~ Edat)
+regTermTest(model, ~ Índex_benestar)
+regTermTest(model, ~ Sexe)
+regTermTest(model, ~ Nivell_estudis)
+regTermTest(model, ~ Classe_social)
+regTermTest(model, ~ Dieta)
+regTermTest(model, ~ Activitat_física)
+regTermTest(model, ~ Fumador)
+regTermTest(model, ~ Alcohol)
+regTermTest(model, ~ Tipus_cobertura)
+```
+
+```{r}
+prob <- predict(model, type = "response")
+summary(prob)
+```
+
+#Mesura de bondat de l'ajust
+
+
+```{r}
+library(pROC)
+
+y <- design_cc$variables$Salut_bin
+p <- predict(model, type = "response")
+
+roc_obj <- roc(y, p, quiet = TRUE)
+auc(roc_obj)
+plot(roc_obj)
+```
+
+
+
+#Interaccions del model
+
+```{r}
+model_int <- svyglm(
+  Salut_bin ~ Edat * Sexe +
+    Índex_benestar+ Nivell_estudis + Classe_social +
+    Tipus_cobertura + Activitat_física + Fumador + Alcohol + Dieta,
+  design = design_cc,
+  family = quasibinomial(link = "logit")
+)
+
+summary(model_int)
+```
+
+```{r}
+library(broom)
+library(dplyr)
+
+taula_model <- tidy(model) %>%
+  dplyr::select(
+    term,
+    estimate,
+    std.error,
+    statistic,
+    p.value
+  )
+taula_model
+```
+
+
+Es va explorar la possible existència d’un efecte d’interacció entre l’edat i el sexe, amb l’objectiu d’avaluar si la relació entre l’edat i la salut percebuda diferia entre homes i dones. No obstant això, el terme d’interacció no va resultar estadísticament significatiu (p = 0,166), indicant que l’efecte de l’edat sobre la probabilitat de declarar una bona salut percebuda és similar en ambdós sexes. En conseqüència, aquesta interacció no es va incloure en el model final.
+
+```{r}
+library(knitr)
+library(kableExtra)
+
+kable(
+  taula_model,
+  digits = 3,
+  booktabs = TRUE,
+  col.names = c(
+    "term",
+    "estimate",
+    "std.error",
+    "statistic",
+    "p.value"
+  ),
+  caption = "Resultats del model de regressió logística"
+) %>%
+  kable_styling(
+    full_width = FALSE,
+    position = "center"
+  )
+```
+
+```{r}
+model_int_edat_act <- svyglm(
+  Salut_bin ~ Edat * Activitat_física + Índex_benestar +
+              Sexe + Nivell_estudis + Classe_social + Tipus_cobertura +
+              Dieta + Alcohol + Fumador,
+  design = design_cc,
+  family = quasibinomial(link = "logit")
+)
+
+summary(model_int_edat_act)
+```
+S'avalua la possible interacció entre l'edat i l'activitat física. Tal i com indica la taula, la interacció no és significativa ja que el p-valor és superior a 0.05, per tant no es justifica la inclusió d'aquesta en el model.
+
+#Estimar el model amb diferents funcions link
+
+```{r}
+library(survey)
+
+# Logit (model principal)
+model_logit <- svyglm(
+  Salut_bin ~ Edat + Índex_benestar + Sexe + Nivell_estudis +
+              Classe_social + Tipus_cobertura + Dieta + Alcohol +
+              Activitat_física + Fumador,
+  design = design_cc,
+  family = quasibinomial(link = "logit")
+)
+
+# Probit
+model_probit <- svyglm(
+  Salut_bin ~ Edat + Índex_benestar + Sexe + Nivell_estudis +
+              Classe_social + Tipus_cobertura + Dieta + Alcohol +
+              Activitat_física + Fumador,
+  design = design_cc,
+  family = quasibinomial(link = "probit")
+)
+
+# Complementary log-log
+model_cloglog <- svyglm(
+  Salut_bin ~ Edat + Índex_benestar + Sexe + Nivell_estudis +
+              Classe_social + Tipus_cobertura + Dieta + Alcohol +
+              Activitat_física + Fumador,
+  design = design_cc,
+  family = quasibinomial(link = "cloglog")
+)
+```
+
+#Mesura de bondat de l'ajust
+
+```{r}
+library(pROC)
+
+y <- model.frame(model_logit)$Salut_bin
+
+p_logit   <- predict(model_logit,   type = "response")
+p_probit  <- predict(model_probit,  type = "response")
+p_cloglog <- predict(model_cloglog, type = "response")
+
+auc_logit   <- auc(roc(y, p_logit, quiet = TRUE))
+auc_probit  <- auc(roc(y, p_probit, quiet = TRUE))
+auc_cloglog <- auc(roc(y, p_cloglog, quiet = TRUE))
+
+data.frame(
+  Link = c("Logit", "Probit", "Cloglog"),
+  AUC  = c(auc_logit, auc_probit, auc_cloglog)
+)
+```
+
+```{r}
+plot(roc(y, p_logit, quiet = TRUE), col = "blue", lwd = 2,
+     main = "Comparació ROC segons funció link")
+lines(roc(y, p_probit, quiet = TRUE), col = "red", lwd = 2)
+lines(roc(y, p_cloglog, quiet = TRUE), col = "darkgreen", lwd = 2)
+legend("bottomright",
+       legend = c("Logit", "Probit", "Cloglog"),
+       col = c("blue", "red", "darkgreen"),
+       lwd = 2)
+```
+Es considera avaluar el model amb altres funcions d'enllaç, concretament el probit el complementary log-log, mantenint la mateixa estructura de variables explicatives. La comparació mitjançant la corba ROC mostra diferències molt petites entre els 3 models. Per aquest motiu, es manté la funció link logit com a model final, atès que emprar alguna altre funció link no proporciona una millora substancial. 
+
+#Model reduit
+
+```{r}
+model_sense_dieta <- svyglm(
+  Salut_bin ~ Edat + Índex_benestar + Sexe + Nivell_estudis +
+              Classe_social + Tipus_cobertura + Alcohol +
+              Activitat_física + Fumador,
+  design = design_cc,
+  family = quasibinomial(link = "logit")
+)
+```
+
+```{r}
+anova(model, model_sense_dieta)
+```
+
+
+```{r}
+model_sense_alcohol <- svyglm(
+  Salut_bin ~ Edat + Índex_benestar + Sexe + Nivell_estudis +
+              Classe_social + Tipus_cobertura +
+              Activitat_física + Fumador,
+  design = design_cc,
+  family = quasibinomial(link = "logit")
+)
+
+anova(model_sense_dieta, model_sense_alcohol)
+```
+
+```{r}
+model_sense_tipus_de_cobertura <- svyglm(
+  Salut_bin ~ Edat + Índex_benestar + Sexe + Nivell_estudis +
+              Classe_social + Alcohol +
+              Activitat_física + Fumador,
+  design = design_cc,
+  family = quasibinomial(link = "logit")
+)
+
+anova(model_sense_dieta, model_sense_tipus_de_cobertura)
+```
+
+```{r}
+model_reduit1 <- svyglm(
+  Salut_bin ~ Edat + Índex_benestar + Sexe + Nivell_estudis +
+              Classe_social + Alcohol + Activitat_física + Fumador,
+  design = design_cc,
+  family = quasibinomial(link = "logit")
+)
+
+summary(model_reduit1)
+```
+
+```{r}
+anova(model, model_reduit1)
+```
+
+
+
+
+
+
+
+

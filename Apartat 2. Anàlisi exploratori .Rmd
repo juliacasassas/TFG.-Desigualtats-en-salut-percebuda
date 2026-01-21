@@ -1,0 +1,1096 @@
+---
+title: "Apartat 2. Anàlisi exploratori"
+output: html_document
+date: "2025-12-26"
+---
+
+
+#Exploració dels NA's
+```{r}
+sapply(base, class)
+summary(base)
+sum(is.na(base))
+```
+
+```{r}
+library(naniar)
+vis_miss(base)
+miss_var_summary(base)
+```
+
+#Anàlisi univariant: salut percebuda
+
+```{r}
+library(dplyr)
+library(survey)
+library(ggplot2)
+
+# 1. Crear el disseny mostral amb pesos
+design <- svydesign(
+  ids = ~1,
+  weights = ~Factor_adult,
+  data = base
+)
+
+# 2. Freqüències ponderades de la salut percebuda
+freq_w <- svytable(~Salut_percebuda, design)
+
+# 3. Passar a data frame
+df_w <- as.data.frame(freq_w)
+colnames(df_w) <- c("Salut_percebuda", "Freq")
+
+# 4. Calcular percentatges
+df_w <- df_w %>%
+  mutate(
+    Percent = Freq / sum(Freq) * 100
+  )
+
+# 5. Gràfic ponderat
+p <- ggplot(df_w, aes(x = Salut_percebuda, y = Freq, fill = Salut_percebuda)) +
+  geom_col(alpha = 0.8) +
+  geom_text(
+    aes(label = paste0(round(Percent, 1), "%")),
+    vjust = -0.5,
+    size = 4
+  ) +
+  labs(
+    x = "Categoria de salut percebuda",
+    y = "Població adulta estimada",
+    fill = "Salut percebuda"
+  ) +
+  scale_fill_brewer(palette = "Blues") +
+  theme_minimal(base_size = 14)
+
+# 6. Mostrar el gràfic
+print(p)
+```
+
+#Anàlisi descriptiva variables numèriques
+
+
+```{r}
+library(survey)
+library(dplyr)
+
+# 1. Identificar variables numèriques
+format_vars <- sapply(base, class)
+varsnums <- names(format_vars)[format_vars == "numeric"]
+
+# 2. Excloure el factor de ponderació
+varsnums <- setdiff(varsnums, "Factor_adult")
+
+
+# 3. Crear el disseny mostral amb pesos
+design <- svydesign(
+  ids = ~1,
+  weights = ~Factor_adult,
+  data = base
+)
+
+# 4. Mitjanes ponderades
+mitjanes <- svymean(
+  as.formula(paste("~", paste(varsnums, collapse = "+"))),
+  design,
+  na.rm = TRUE
+)
+
+# 5. Variàncies ponderades 
+var_pond <- svyvar(
+  as.formula(paste("~", paste(varsnums, collapse = "+"))),
+  design,
+  na.rm = TRUE
+)
+
+
+sd_pond <- sqrt(diag(var_pond))
+
+
+tabla_resumen_pond <- data.frame(
+  Variable = varsnums,
+  Mitjana = as.numeric(coef(mitjanes)),
+  SD = as.numeric(sd_pond),
+  N = sapply(varsnums, function(v) sum(!is.na(base[[v]])))
+)
+
+tabla_resumen_pond$Min <- sapply(varsnums, function(v) min(base[[v]], na.rm = TRUE))
+tabla_resumen_pond$Max <- sapply(varsnums, function(v) max(base[[v]], na.rm = TRUE))
+
+ 
+tabla_resumen_pond <- tabla_resumen_pond %>%
+  arrange(Variable)
+
+
+tabla_resumen_pond
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+grafic_num <- function(var) {
+
+  df <- base %>%
+    dplyr::select(dplyr::all_of(c(var, "Factor_adult"))) %>%
+    dplyr::filter(
+      !is.na(.data[[var]]),
+      !is.na(Factor_adult)
+    )
+
+  # Mitjana ponderada
+  media_pond <- weighted.mean(df[[var]], df$Factor_adult)
+
+  ggplot(df, aes(x = .data[[var]], weight = Factor_adult)) +
+    geom_histogram(
+      aes(y = after_stat(density)),
+      bins = 30,
+      fill = "#4A90E2",
+      color = "white",
+      alpha = 0.7
+    ) +
+    geom_density(
+      color = "#D0021B",
+      linewidth = 1,
+      alpha = 0.3
+    ) +
+    geom_vline(
+      xintercept = media_pond,
+      color = "black",
+      linetype = "dashed"
+    ) +
+    labs(
+      title = paste("Distribució ponderada de", var),
+      x = var,
+      y = "Densitat"
+    ) +
+    theme_minimal(base_size = 13)
+}
+
+
+grafic_num("Edat")
+grafic_num("Índex_benestar")
+```
+
+
+#Anàlisi variables categòriques
+
+
+```{r}
+
+library(survey)
+
+varCat <- names(Filter(is.factor, base))
+
+# (Opcional però recomanat) Excloure identificadors i variable dependent
+varCat <- setdiff(varCat, c("IDENTHOGAR", "Salut_percebuda"))
+
+design <- svydesign(
+  ids = ~1,
+  weights = ~Factor_adult,
+  data = base
+)
+
+
+par(mfrow = c(2, 3))
+
+
+for (var in varCat) {
+
+  # Freqüències ponderades
+  freq_w <- svytable(as.formula(paste("~", var)), design)
+
+  # Gràfic de barres
+  barplot(
+    freq_w,
+    main = paste("Distribució ponderada de", var),
+    col = "lightblue",
+    border = "gray40",
+    las = 2
+  )
+}
+
+
+par(mfrow = c(1, 1))
+```
+
+
+#Anàlisi variables binàries
+
+1. Variable "Sexe"
+
+```{r}
+library(survey)
+library(dplyr)
+
+# 1. Assegurar codificació correcta del sexe
+
+base$Sexe <- factor(
+  base$Sexe,
+  levels = c(1, 2),
+  labels = c("Home", "Dona")
+)
+
+design <- svydesign(
+  ids = ~1,
+  weights = ~Factor_adult,
+  data = base
+)
+
+
+# 2. Taula de freqüències ponderada
+
+variable_1 <- as.data.frame(svytable(~Sexe, design))
+colnames(variable_1) <- c("Etiqueta", "Freq")
+
+# Percentatges ponderats
+variable_1$relativa <- variable_1$Freq / sum(variable_1$Freq)
+
+labels <- paste0(round(variable_1$relativa * 100, 1), "%")
+colores <- rainbow(nrow(variable_1))
+
+# 3. Gràfic de pastís ponderat
+
+pie(
+  variable_1$Freq,
+  labels = labels,
+  col = colores,
+  main = "Distribució ponderada del gènere"
+)
+
+legend(
+  "topright",
+  legend = variable_1$Etiqueta,
+  fill = colores,
+  bty = "n"
+)
+
+
+# 4. Mostrar taula final
+print(variable_1)
+```
+
+
+
+2. Variable "Nivell d'estudis"
+
+```{r}
+library(survey)
+
+base$Nivell_estudis <- factor(
+  base$Nivell_estudis,
+  levels = c("01","02","03","04","05","06","07","08","09"),
+  labels = c(
+    "No procedeix (<10 anys)",
+    "No sap llegir o escriure",
+    "Primària incompleta",
+    "Primària completa",
+    "Secundària 1a etapa",
+    "Batxillerat",
+    "FP grau mitjà",
+    "FP grau superior",
+    "Universitaris"
+  )
+)
+
+design <- svydesign(
+  ids = ~1,
+  weights = ~Factor_adult,
+  data = base
+)
+
+variable_2 <- as.data.frame(svytable(~Nivell_estudis, design))
+colnames(variable_2) <- c("Etiqueta", "Freq")
+
+variable_2$relativa <- variable_2$Freq / sum(variable_2$Freq)
+labels <- paste0(round(variable_2$relativa * 100, 1), "%")
+colores <- rainbow(nrow(variable_2))
+
+
+par(xpd = TRUE, mar = c(5, 4, 4, 12))
+
+pie(
+  variable_2$Freq,
+  labels = labels,
+  col = colores,
+  main = "Distribució ponderada del nivell d'estudis"
+)
+
+legend(
+  "right",
+  inset = c(-0.35, 0),
+  legend = variable_2$Etiqueta,
+  fill = colores,
+  bty = "n",
+  cex = 0.9
+)
+
+print(variable_2)
+```
+
+3. Variable "Classe Social"
+
+```{r}
+library(survey)
+library(dplyr)
+base$Classe_social<- factor(
+  base$Classe_social,
+  levels = c("1","2","3","4","5","6"),
+  labels =  c(
+  "Alta",
+  "Mitjana-alta",
+  "Mitjana",
+  "Mitjana-baixa",
+  "Baixa",
+  "Molt baixa"
+)
+)
+design <- svydesign(
+  ids = ~1,
+  weights = ~Factor_adult,
+  data = base
+)
+variable_3 <- as.data.frame(svytable(~Classe_social, design))
+colnames(variable_3) <- c("Etiqueta", "Freq")
+variable_3$relativa <- variable_3$Freq / sum(variable_3$Freq)
+labels <- paste0(
+  variable_3$Etiqueta, ": ",
+  round(variable_3$relativa * 100, 1), "%"
+)
+colores <- rainbow(nrow(variable_3))
+pie(
+  variable_3$Freq,
+  labels = labels,
+  col = colores,
+  main = "Distribució ponderada de la classe social"
+)
+print(variable_3)
+summary(base$Classe_social)
+```
+
+
+#Seguretat Social
+
+```{r}
+library(survey)
+base$Cap_assegurança <- factor(
+  base$Cap_assegurança,
+  levels = c(1, 2, 9),
+  labels = c(
+    "Sense cap assegurança",
+    "Amb alguna assegurança",
+    "No sap / No contesta"
+  )
+)
+
+design <- svydesign(
+  ids = ~1,
+  weights = ~Factor_adult,
+  data = base
+)
+freq_w <- as.data.frame(svytable(~Cap_assegurança, design))
+colnames(freq_w) <- c("Etiqueta", "Freq")
+freq_w$relativa <- round(freq_w$Freq / sum(freq_w$Freq) * 100, 1)
+labels <- paste0(freq_w$Etiqueta, ": ", freq_w$relativa, "%")
+colors <- c("tomato", "skyblue", "grey70")
+pie(
+  freq_w$Freq,
+  labels = labels,
+  col = colors,
+  main = "Distribució ponderada d'assegurances sanitàries (inclou NS/NC)"
+)
+print(freq_w)
+```
+
+4. Variable Tipus d'assegurança
+
+```{r}
+library(survey)
+
+temp <- base[, c("Seguretat_social",
+                 "Mutualitats_Estat_públic",
+                 "Mutualitats_Estat_privat",
+                 "Assegurança_privada",
+                 "Assegurança_empresa")]
+
+temp[temp == 9] <- NA
+
+vars_public  <- c("Seguretat_social", "Mutualitats_Estat_públic")
+vars_private <- c("Mutualitats_Estat_privat", "Assegurança_privada", "Assegurança_empresa")
+
+tiene_publica <- apply(temp[vars_public], 1, function(x) any(x == 1, na.rm = TRUE))
+tiene_privada <- apply(temp[vars_private], 1, function(x) any(x == 1, na.rm = TRUE))
+
+base$Tipus_cobertura[base$Cap_assegurança == "Sense cap assegurança"] <- "Sense assegurança"
+
+base$Tipus_cobertura[
+  base$Cap_assegurança == "Amb alguna assegurança" & tiene_privada == TRUE
+] <- "Privada"
+
+base$Tipus_cobertura[
+  base$Cap_assegurança == "Amb alguna assegurança" &
+  tiene_privada == FALSE &
+  tiene_publica == TRUE
+] <- "Només pública"
+
+
+design <- svydesign(
+  ids = ~1,
+  weights = ~Factor_adult,
+  data = base
+)
+
+freq <- as.data.frame(svytable(~Tipus_cobertura, design))
+print(freq)
+# Percentatges
+pct <- round(freq$Freq / sum(freq$Freq) * 100, 1)
+labels <- paste0(freq$Tipus_cobertura, ": ", pct, "%")
+
+pie(
+  freq$Freq,
+  labels = labels,
+  col = c("grey70", "skyblue", "tomato"),
+  main = "Tipus d'assegurança sanitària (ponderat)"
+)
+```
+
+5. Variable "Activitat física"
+
+```{r}
+library(survey)
+
+# 1. Recodificar activitat física amb etiquetes
+
+base$Activitat_física <- factor(
+  base$Activitat_física,
+  levels = c("1","2","3","4"),
+  labels = c(
+    "No faig exercici (sedentari)",
+    "Activitat física ocasional",
+    "Activitat física diverses vegades al mes",
+    "Entrenament diverses vegades a la setmana"
+  )
+)
+
+
+design <- svydesign(
+  ids = ~1,
+  weights = ~Factor_adult,
+  data = base
+)
+
+# 2. Taula ponderada
+
+variable_5 <- as.data.frame(svytable(~Activitat_física, design))
+colnames(variable_5) <- c("Etiqueta", "Freq")
+
+variable_5$relativa <- variable_5$Freq / sum(variable_5$Freq)
+labels <- paste0(round(variable_5$relativa * 100, 1), "%")
+colores <- rainbow(nrow(variable_5))
+
+
+# 3. Gràfic de pastís ponderat
+
+pie(
+  variable_5$Freq,
+  labels = labels,
+  col = colores,
+  main = "Distribució ponderada de l'activitat física"
+)
+
+legend(
+  "topright",
+  legend = variable_5$Etiqueta,
+  fill = colores,
+  bty = "n",
+  cex = 0.9
+)
+
+
+# 4. Taula final
+print(variable_5)
+summary(base$Activitat_física)
+```
+
+6. Variable "Fumador"
+
+```{r}
+library(survey)
+
+# 1. Recodificar hàbit tabàquic amb etiquetes clares
+
+base$Fumador <- factor(
+  base$Fumador,
+  levels = c("1","2","3","4"),
+  labels = c(
+    "Fumo diàriament",
+    "Fumo però no diàriament",
+    "Exfumador",
+    "No fumador"
+  )
+)
+
+design <- svydesign(
+  ids = ~1,
+  weights = ~Factor_adult,
+  data = base
+)
+
+# 2. Taula ponderada
+
+variable_6 <- as.data.frame(svytable(~Fumador, design))
+colnames(variable_6) <- c("Etiqueta", "Freq")
+
+variable_6$relativa <- variable_6$Freq / sum(variable_6$Freq)
+labels <- paste0(round(variable_6$relativa * 100, 1), "%")
+colores <- rainbow(nrow(variable_6))
+
+# 3. Gràfic de pastís ponderat
+pie(
+  variable_6$Freq,
+  labels = labels,
+  col = colores,
+  main = "Distribució ponderada de l’hàbit tabàquic"
+)
+
+legend(
+  "topright",
+  legend = variable_6$Etiqueta,
+  fill = colores,
+  bty = "n",
+  cex = 0.9
+)
+
+# 4. Taula final
+print(variable_6)
+summary(base$Fumador)
+```
+
+7. Variable "Alcohol"
+
+
+```{r}
+library(survey)
+
+# 1. Recodificar consum d'alcohol amb etiquetes
+base$Alcohol <- factor(
+  base$Alcohol,
+  levels = c("01","02","03","04","05","06","07","08","09"),
+  labels = c(
+    "A diari o gairebé a diari",
+    "5–6 dies per setmana",
+    "3–4 dies per setmana",
+    "1–2 dies per setmana",
+    "2–3 dies al mes",
+    "Una vegada al mes",
+    "Menys d'una vegada al mes",
+    "No en els últims 12 mesos",
+    "Mai o només uns sorbets"
+  )
+)
+
+design <- svydesign(
+  ids = ~1,
+  weights = ~Factor_adult,
+  data = base
+)
+
+
+# 2. Taula ponderada
+variable_7 <- as.data.frame(svytable(~Alcohol, design))
+colnames(variable_7) <- c("Etiqueta", "Freq")
+variable_7$relativa <- variable_7$Freq / sum(variable_7$Freq)
+labels <- paste0(round(variable_7$relativa * 100, 1), "%")
+colores <- rainbow(nrow(variable_7))
+
+
+# 3. Gràfic de pastís ponderat
+pie(
+  variable_7$Freq,
+  labels = labels,
+  col = colores,
+  main = "Distribució ponderada del consum d'alcohol"
+)
+
+legend(
+  "topright",
+  legend = variable_7$Etiqueta,
+  fill = colores,
+  bty = "n",
+  cex = 0.8
+)
+
+# 4. Taula final
+print(variable_7)
+summary(base$Alcohol)
+```
+
+8. Variable "dieta"
+
+
+```{r}
+library(Hmisc)
+
+vars_aliments <- base %>%
+  dplyr::select(
+    Fruita, Verdura_amanida, Llegums, Peix, Carn, Ous,
+    Pa_cereals, Pasta_arròs_patata, Dolços, Sucre, Embotits, Menjar_ràpid
+  )
+
+cor_aliments <- rcorr(as.matrix(vars_aliments), type = "spearman")
+
+cor_aliments$r    # correlacions
+cor_aliments$P    # p-valors
+```
+
+```{r}
+#1. Crear indicador d’aliments saludables 
+
+saludables <- rowSums(cbind(
+    base$Fruita %in% c(1,2),
+    base$Verdura_amanida %in% c(1,2),
+    base$Llegums %in% c(1,2,3,4),
+    base$Peix %in% c(1,2,3),
+    base$Carn %in% c(1,2,3),
+    base$Ous %in% c(1,2,3),
+    base$Pasta_arròs_patata %in% c(1,2,3),
+    base$Pa_cereals %in% c(1,2,3)
+), na.rm = TRUE)
+
+#Dieta inadequada en saludables si compleix menys de 4
+baix_saludable <- saludables < 4
+
+# 2. Crear indicador d’aliments poc saludables 
+
+alt_malsans <- (
+    base$Dolços %in% c(1,2) |
+    base$Sucre %in% c(1,2) |
+    base$Menjar_ràpid %in% c(1,2)
+)
+
+# 3. Variable final dieta (1 = saludable, 2 = poc saludable) 
+
+base$Dieta <- ifelse(!baix_saludable & !alt_malsans, 1, 2)
+base$Dieta <- factor(
+  base$Dieta,
+  levels = c(1, 2),
+  labels = c("Saludable", "Poc_saludable")
+)
+```
+
+```{r}
+base$Dieta <- NA
+
+# Matriu lògica de consum adequat
+consum_saludable <- cbind(
+  base$Fruita %in% c(1, 2),
+  base$Verdura_amanida %in% c(1, 2),
+  base$Llegums %in% c(1, 2, 3, 4),
+  base$Peix %in% c(1, 2, 3),
+  base$Carn %in% c(1, 2, 3),
+  base$Ous %in% c(1, 2, 3),
+  base$Pasta_arròs_patata %in% c(1, 2, 3),
+  base$Pa_cereals %in% c(1, 2, 3)
+)
+
+# Nombre de respostes vàlides
+n_valides_saludables <- rowSums(!is.na(consum_saludable))
+
+# Nombre d'aliments saludables consumits adequadament
+n_saludables <- rowSums(consum_saludable, na.rm = TRUE)
+
+# Criteri: dieta baixa en saludables
+# (menys de 4 grups saludables, amb almenys 6 respostes vàlides)
+baix_saludable <- n_saludables < 4 & n_valides_saludables >= 6
+
+consum_malsans <- cbind(
+  base$Dolços %in% c(1, 2),
+  base$Sucre %in% c(1, 2),
+  base$Menjar_ràpid %in% c(1, 2)
+)
+
+n_valides_malsans <- rowSums(!is.na(consum_malsans))
+
+# Excés de malsans si en consumeix almenys un freqüentment
+alt_malsans <- rowSums(consum_malsans, na.rm = TRUE) >= 1 &
+               n_valides_malsans >= 2
+
+base$Dieta <- NA
+
+base$Dieta[!baix_saludable & !alt_malsans] <- "Dieta saludable"
+base$Dieta[baix_saludable | alt_malsans]   <- "Dieta poc saludable"
+
+base$Dieta <- factor(
+  base$Dieta,
+  levels = c("Dieta saludable", "Dieta poc saludable")
+)
+
+```
+
+
+##Anàlisi bivariant
+#Anàlisi salut percebuda en funció de l'edat i el sexe 
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+
+# 1. Crear grups d’edat
+base$GrupEdats <- cut(
+  base$Edat,
+  breaks = c(15, 24, 34, 44, 54, 64, 74, 84, Inf),
+  labels = c(
+    "15-24", "25-34", "35-44", "45-54",
+    "55-64", "65-74", "75-84", "85+"
+  ),
+  right = FALSE
+)
+
+# 2. Convertir salut percebuda a numèrica
+base$Salut_percebuda_num <- as.numeric(as.character(base$Salut_percebuda))
+
+# 3. Càlcul de mitjanes ponderades
+df_plot <- base %>%
+  dplyr::filter(
+    !is.na(GrupEdats),
+    !is.na(Sexe),
+    !is.na(Salut_percebuda_num),
+    !is.na(Factor_adult)
+  ) %>%
+  group_by(GrupEdats, Sexe) %>%
+  summarise(
+    Mitjana = weighted.mean(Salut_percebuda_num, Factor_adult),
+    n = n(),
+    .groups = "drop"
+  )
+
+
+# 4. Gràfic
+ggplot(df_plot, aes(x = GrupEdats, y = Mitjana, fill = Sexe)) +
+  geom_col(
+    position = position_dodge(width = 0.8),
+    width = 0.7
+  ) +
+  geom_text(
+    aes(label = round(Mitjana, 2)),
+    position = position_dodge(width = 0.8),
+    vjust = -0.5,
+    size = 4
+  ) +
+  labs(
+    x = "Grup d'edat",
+    y = "Mitjana de salut percebuda",
+    fill = "Sexe"
+  ) +
+  theme_minimal(base_size = 14) +
+  scale_fill_manual(
+    values = c(
+      "Home" = "#6baed6",
+      "Dona" = "grey"
+    )
+  )
+```
+
+
+#Anàlisi de la salut percebuda per classe social i nivell d'estudis
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+df <- base %>% 
+  dplyr::filter(
+    Nivell_estudis != "99",
+    Classe_social != "9",
+    !is.na(Factor_adult),
+    !is.na(Salut_percebuda)
+  ) %>%
+  group_by(Classe_social, Nivell_estudis) %>%
+  summarise(
+    mean_salut = weighted.mean(
+      as.numeric(Salut_percebuda),
+      Factor_adult,
+      na.rm = TRUE
+    ),
+    n = n(),   # nombre d’enquestats (informatiu)
+    .groups = "drop"
+  )
+
+ggplot(df, aes(x = Nivell_estudis, y = Classe_social, fill = mean_salut)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(mean_salut, 2)), size = 4) +
+  scale_fill_gradient(
+    low  = "#deebf7",  # blau molt clar
+  high = "#2171b5",  # blau fosc elegant
+    name = "Salut percebuda\n(mitjana ponderada)"
+  ) +
+  labs(
+    x = "Nivell d'estudis",
+    y = "Classe social"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid = element_blank()
+  )
+```
+
+#Anàlisi de salut percebuda per alcohol i tabac
+
+```{r}
+
+library(dplyr)
+library(ggplot2)
+library(scales)
+
+
+df_fum_alcohol <- base %>% 
+  dplyr::filter(
+    !is.na(Fumador),
+    !is.na(Alcohol),
+    !is.na(Salut_percebuda),
+    !is.na(Factor_adult)
+  ) %>%
+  group_by(Fumador, Alcohol) %>%
+  summarise(
+    mean_salut = weighted.mean(
+      as.numeric(Salut_percebuda),
+      Factor_adult,
+      na.rm = TRUE
+    ),
+    n = n(),
+    .groups = "drop"
+  )
+
+ggplot(df_fum_alcohol,
+       aes(x = Alcohol, y = Fumador, fill = mean_salut)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(mean_salut, 2)), size = 4) +
+  scale_fill_gradient(
+   low  = "#deebf7",  # blau molt clar
+  high = "#2171b5",  # blau fosc elegant
+    name = "Salut percebuda\n(mitjana ponderada)",
+    limits = c(1, 5)
+  ) +
+  labs(
+    x = "Consum d'alcohol",
+    y = "Hàbit tabàquic"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid = element_blank()
+  )
+
+
+df_alcohol <- base %>%
+  dplyr::filter(
+    !is.na(Salut_percebuda),
+    !is.na(Alcohol),
+    !is.na(Factor_adult)
+  )
+
+ggplot(df_alcohol,
+       aes(x = Alcohol,
+           fill = Salut_percebuda,
+           weight = Factor_adult)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = percent_format()) +
+  scale_fill_brewer(
+    palette = "RdYlGn",
+    direction = 1,
+    name = "Salut percebuda"
+  ) +
+  labs(
+    x = "Freqüència de consum d’alcohol",
+    y = "Percentatge"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+# 5. Fumador × Salut percebuda (percentatges PONDERATS)
+
+df_fumador <- base %>%
+  dplyr::filter(
+    !is.na(Salut_percebuda),
+    !is.na(Fumador),
+    !is.na(Factor_adult)
+  )
+
+ggplot(df_fumador,
+       aes(x = Fumador,
+           fill = Salut_percebuda,
+           weight = Factor_adult)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = percent_format()) +
+  scale_fill_brewer(
+    palette = "RdYlGn",
+    direction = 1,
+    name = "Salut percebuda"
+  ) +
+  labs(
+    x = "Tipus de fumador",
+    y = "Percentatge"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+#Anàlisi seguretat social
+
+
+```{r}
+
+library(dplyr)
+library(ggplot2)
+library(scales)
+
+
+# 1. Data frame per al gràfic
+df_plot <- base %>%
+  dplyr::filter(
+    !is.na(Tipus_cobertura),
+    !is.na(Salut_percebuda),
+    !is.na(Factor_adult)
+  ) %>%
+  dplyr::select(
+    Tipus_cobertura,
+    Salut_percebuda,
+    Factor_adult
+  )
+
+# 2. Gràfic apilat en percentatges ponderats
+
+ggplot(
+  df_plot,
+  aes(
+    x = Tipus_cobertura,
+    fill = factor(Salut_percebuda),
+    weight = Factor_adult
+  )
+) +
+  geom_bar(position = "fill", alpha = 0.9) +
+  scale_y_continuous(labels = percent_format()) +
+  scale_fill_brewer(
+    palette = "Blues",
+    direction = 1,
+    name = "Salut percebuda"
+  ) +
+  labs(
+    x = "Tipus de cobertura",
+    y = "Percentatge"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
+
+#Anàlisi activitat física i hàbits saludables
+
+  
+```{r}
+library(ggplot2)
+library(scales)
+
+ggplot(
+  base %>% 
+    dplyr::filter(
+      !is.na(Dieta),
+      !is.na(Salut_percebuda),
+      !is.na(Factor_adult)
+    ),
+  aes(x = Dieta, fill = Salut_percebuda, weight = Factor_adult)
+) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = percent_format()) +
+  scale_fill_brewer(palette = "YlGnBu") +
+  labs(
+    title = "Salut percebuda segons la qualitat de la dieta (ponderat)",
+    x = "Tipus de dieta",
+    y = "Percentatge",
+    fill = "Salut percebuda"
+  ) +
+  theme_minimal(base_size = 14)
+base$Salut_percebuda_num <- as.numeric(base$Salut_percebuda)
+
+resum <- base %>%
+  dplyr::filter(
+    !is.na(Dieta),
+    !is.na(Activitat_física),
+    !is.na(Salut_percebuda_num),
+    !is.na(Factor_adult)
+  ) %>%
+  group_by(Dieta, Activitat_física) %>%
+  summarise(
+    mitjana_salut = weighted.mean(
+      Salut_percebuda_num,
+      Factor_adult,
+      na.rm = TRUE
+    ),
+    .groups = "drop"
+  )
+
+ggplot(resum, aes(x = Dieta, y = Activitat_física, fill = mitjana_salut)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(mitjana_salut, 2)), size = 4.5) +
+  scale_fill_gradient(
+    low  = "#deebf7",
+    high = "#2171b5",
+    name = "Salut percebuda\n(mitjana ponderada)"
+  ) +
+  labs(
+    title = "Salut percebuda segons dieta i activitat física (ponderat)",
+    x = "Tipus de dieta",
+    y = "Activitat física"
+  ) +
+  theme_minimal(base_size = 14)
+```
+
+
+#Anàlisi relació index de benestar i salut percebuda
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# Resum ponderat
+df_plot <- base %>%
+  group_by(Salut_percebuda) %>%
+  summarise(
+    mitjana = weighted.mean(Índex_benestar, Factor_adult, na.rm = TRUE),
+    # Error estàndard ponderat
+    se = sqrt(
+      weighted.mean(
+        (Índex_benestar - mitjana)^2,
+        Factor_adult,
+        na.rm = TRUE
+      ) / n()
+    )
+  ) %>%
+  mutate(
+    lower = mitjana - 1.96 * se,
+    upper = mitjana + 1.96 * se
+  )
+
+# Gràfic
+ggplot(df_plot, aes(x = mitjana, y = factor(Salut_percebuda))) +
+  geom_point(size = 4, color = "#D62828") +
+  geom_errorbarh(
+    aes(xmin = lower, xmax = upper),
+    height = 0.2,
+    color = "#555555"
+  ) +
+  labs(
+    title = "Índex de benestar segons salut percebuda",
+    subtitle = "Mitjana ponderada i interval de confiança del 95%",
+    x = "Índex de benestar",
+    y = "Salut percebuda"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid.minor = element_blank()
+  )
+```
+
